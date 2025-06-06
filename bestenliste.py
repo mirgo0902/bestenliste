@@ -9,7 +9,7 @@ SCOPE = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/drive']
 
 # Pfad zu deinem Google Service Account JSON Schlüssel
-CREDENTIALS_PATH = "C:\\Users\\User\\Documents\\bestenliste\\.streamlit\\bestenliste-462113-0ac9883ad436.json"
+CREDENTIALS_PATH = r"C:\Users\User\Documents\bestenliste\.streamlit\bestenliste-462113-0ac9883ad436.json"
 
 # ID oder URL deines Google Sheets
 SPREADSHEET_ID = "1xsWpzujwS-v1PirBnOxg4LOVs1gbsoSEP4FtVWhPSnc"
