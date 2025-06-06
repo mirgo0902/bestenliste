@@ -3,21 +3,13 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import copy
-import os
 
 # --- Google Sheets Setup ---
 SCOPE = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/drive']
 
-# Absoluter Pfad zur Google Service Account JSON-Schlüsseldatei (angepasst mit os.path)
-# Hinweis: Pfad anpassen, falls Datei woanders liegt
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CREDENTIALS_PATH = os.path.join(BASE_DIR, 'bestenliste-462113-0ac9883ad436.json')
-
-# Für Debug: Aktuelles Arbeitsverzeichnis und ob Datei vorhanden ist
-print("Aktuelles Arbeitsverzeichnis:", os.getcwd())
-print("Pfad zur Credentials-Datei:", CREDENTIALS_PATH)
-print("Datei vorhanden?", os.path.isfile(CREDENTIALS_PATH))
+# Pfad zu deinem Google Service Account JSON Schlüssel
+CREDENTIALS_PATH = "C:/Users/User/Documents/bestenliste/.streamlit/bestenliste-462113-0ac9883ad436.json"
 
 # ID oder URL deines Google Sheets
 SPREADSHEET_ID = "1xsWpzujwS-v1PirBnOxg4LOVs1gbsoSEP4FtVWhPSnc"
@@ -44,7 +36,7 @@ def load_bestenliste_from_sheet(sheet):
     return bestenliste
 
 def save_bestenliste_to_sheet(sheet, bestenliste):
-    # Überschreibt die gesamte Tabelle
+    # Überschreibt die gesamte Tabelle (außer Kopfzeile)
     data = [["Vorname", "Nachname", "Zeit"]]
     for (vorname, nachname), zeit in bestenliste:
         data.append([vorname, nachname, zeit])
@@ -52,6 +44,7 @@ def save_bestenliste_to_sheet(sheet, bestenliste):
     sheet.update(data)
 
 # --- Bestenliste Logik ---
+
 def find_position(bestenliste, vorname, nachname):
     for idx, ((vn, nn), zeit) in enumerate(bestenliste):
         if vn == vorname and nn == nachname:
@@ -61,15 +54,7 @@ def find_position(bestenliste, vorname, nachname):
 def main():
     st.title("Bestenliste Schulfest")
 
-    try:
-        sheet = get_sheet()
-    except FileNotFoundError:
-        st.error(f"Die Datei mit den Zugangsdaten wurde nicht gefunden: {CREDENTIALS_PATH}")
-        return
-    except Exception as e:
-        st.error(f"Fehler beim Zugriff auf Google Sheets: {e}")
-        return
-
+    sheet = get_sheet()
     if 'bestenliste' not in st.session_state:
         st.session_state.bestenliste = load_bestenliste_from_sheet(sheet)
         st.session_state.undo_stack = []
@@ -108,7 +93,7 @@ def main():
 
                         st.session_state.bestenliste.sort(key=lambda x: x[1])
                         save_bestenliste_to_sheet(sheet, st.session_state.bestenliste)
-
+                        
                         # Formular zurücksetzen
                         st.experimental_rerun()
                 except ValueError:
