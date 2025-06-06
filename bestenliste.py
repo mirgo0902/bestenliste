@@ -1,106 +1,95 @@
-import streamlit as st
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import pandas as pd
-import json
+def eingabe_zeit():
+    while True:
+        try:
+            zeit = float(input("Zeit in Sekunden eingeben: "))
+            if zeit <= 0:
+                print("Bitte eine positive Zahl eingeben.")
+                continue
+            return zeit
+        except ValueError:
+            print("Ungültige Eingabe. Bitte eine Zahl eingeben.")
 
-st.set_page_config(page_title="🏅 Bestenliste mit Google Sheets", page_icon="🏅")
-
-# GOOGLE SHEETS: Zugang aus st.secrets
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
-creds_dict = st.secrets["gcp_service_account"]
-creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
-client = gspread.authorize(creds)
-sheet = client.open("bestenliste").sheet1
-
-def zeit_zu_sekunden(zeit_str):
-    try:
-        if ":" in zeit_str:
-            minuten, sekunden = zeit_str.split(":")
-            return int(minuten) * 60 + float(sekunden)
-        else:
-            return float(zeit_str)
-    except:
-        return None
-
-def laden_bestenliste():
-    data = sheet.get_all_records()
-    if not data:
-        return pd.DataFrame(columns=["Vorname", "Nachname", "Zeit"])
-    df = pd.DataFrame(data)
-    df.columns = df.columns.str.strip().str.lower()
-    return df
-
-def speichern_eintrag(vorname, nachname, zeit):
-    records = sheet.get_all_records()
-    for i, record in enumerate(records, start=2):
-        if record.get("Vorname") == vorname and record.get("Nachname") == nachname:
-            sheet.update_cell(i, 3, zeit)
-            return
-    sheet.append_row([vorname, nachname, zeit])
-
-def bestenliste_anzeigen(df, top=10):
-    if df.empty:
-        st.info("Noch keine Einträge vorhanden.")
-        return
-    df.columns = df.columns.str.strip().str.lower()
-    if "zeit" not in df.columns:
-        st.error("Spalte 'zeit' nicht gefunden. Gefundene Spalten: " + ", ".join(df.columns))
-        return
-    df["zeit_in_sek"] = df["zeit"].apply(zeit_zu_sekunden)
-    df = df.dropna(subset=["zeit_in_sek"])
-    df_sorted = df.sort_values("zeit_in_sek").head(top).reset_index(drop=True)
-    df_sorted.index += 1
-    st.dataframe(df_sorted[["vorname", "nachname", "zeit"]])
-
-def name_suchen(df, vorname, nachname):
-    df.columns = df.columns.str.strip().str.lower()
-    df["name_kombi"] = df["vorname"].str.lower() + " " + df["nachname"].str.lower()
-    such_name = f"{vorname.lower()} {nachname.lower()}"
-    if such_name in df["name_kombi"].values:
-        df["zeit_in_sek"] = df["zeit"].apply(zeit_zu_sekunden)
-        df_sorted = df.sort_values("zeit_in_sek").reset_index(drop=True)
-        df_sorted["platz"] = df_sorted.index + 1
-        platz = df_sorted[df_sorted["name_kombi"] == such_name]["platz"].values[0]
-        zeit = df_sorted[df_sorted["name_kombi"] == such_name]["zeit"].values[0]
-        return platz, zeit
+def name_suchen(bestenliste, vorname, nachname):
+    for idx, (name, zeit) in enumerate(bestenliste):
+        if name == (vorname, nachname):
+            return idx + 1, zeit  # Platz ist Index +1
     return None, None
 
-st.title("🏅 Bestenliste fürs Schulfest (mit Google Sheets)")
+def bestenliste_anzeigen(bestenliste, top=10):
+    print(f"\nTop {top} Ergebnisse:")
+    for i, ((vorname, nachname), zeit) in enumerate(bestenliste[:top], start=1):
+        print(f"{i}. {vorname} {nachname} - {zeit:.2f} Sekunden")
 
-with st.form("eintrag_form"):
-    vorname = st.text_input("Vorname")
-    nachname = st.text_input("Nachname")
-    zeit_str = st.text_input("Zeit (mm:ss oder Sekunden, z.B. 01:32 oder 92)")
-    submit = st.form_submit_button("Eintragen")
-
-if submit:
-    if not vorname or not nachname:
-        st.error("Bitte Vor- und Nachnamen eingeben.")
-    else:
-        zeit_sek = zeit_zu_sekunden(zeit_str)
-        if zeit_sek is None or zeit_sek <= 0:
-            st.error("Bitte eine gültige Zeit eingeben (mm:ss oder Sekunden).")
+def main():
+    bestenliste = []  # Liste von ((vorname, nachname), zeit)
+    verlaufs_undo_stack = []  # Stapel für Undo (Liste mit ganzen Listen-Ständen)
+    
+    print("Willkommen zur Bestenliste fürs Schulfest!")
+    print("Gib Vor- und Nachname ein, um Zeiten hinzuzufügen bzw. zu aktualisieren.")
+    print('Gib "Such Name" zum Suchen ein (z.B. "Such Max Mustermann").')
+    print('Gib "Top 10" ein, um die 10 besten Zeiten anzuzeigen.')
+    print('Gib "Undo" ein, um die letzte Änderung rückgängig zu machen.')
+    print('Gib "Ende" ein, um das Programm zu beenden.')
+    
+    while True:
+        eingabe = input("\nEingabe: ").strip()
+        if eingabe.lower() == "ende":
+            print("Programm wird beendet.")
+            break
+        elif eingabe.lower() == "top 10":
+            if not bestenliste:
+                print("Die Bestenliste ist noch leer.")
+            else:
+                bestenliste.sort(key=lambda x: x[1])
+                bestenliste_anzeigen(bestenliste, top=10)
+            continue
+        elif eingabe.lower() == "undo":
+            if verlaufs_undo_stack:
+                bestenliste = verlaufs_undo_stack.pop()
+                print("Letzte Änderung wurde rückgängig gemacht.")
+            else:
+                print("Nichts zum Rückgängig machen.")
+            continue
+        elif eingabe.lower().startswith("such "):
+            parts = eingabe.split(maxsplit=2)
+            if len(parts) < 3:
+                print("Bitte den Befehl richtig eingeben: z.B. 'Such Max Mustermann'")
+                continue
+            vorname, nachname = parts[1], parts[2]
+            platz, zeit = name_suchen(bestenliste, vorname, nachname)
+            if platz is not None:
+                print(f"{vorname} {nachname} ist auf Platz {platz} mit {zeit:.2f} Sekunden.")
+            else:
+                print(f"{vorname} {nachname} ist nicht in der Bestenliste.")
+            continue
         else:
-            speichern_eintrag(vorname, nachname, zeit_str)
-            st.success(f"{vorname} {nachname} mit Zeit {zeit_str} eingetragen! Bitte Seite neu laden.")
+            namen = eingabe.split()
+            if len(namen) < 2:
+                print("Bitte Vor- und Nachnamen eingeben.")
+                continue
+            vorname, nachname = namen[0], " ".join(namen[1:])
+            zeit = eingabe_zeit()
+            
+            # Zustand vor der Änderung sichern für Undo (tiefe Kopie)
+            import copy
+            verlaufs_undo_stack.append(copy.deepcopy(bestenliste))
+            
+            gefunden = False
+            for idx, (name, alte_zeit) in enumerate(bestenliste):
+                if name == (vorname, nachname):
+                    gefunden = True
+                    if zeit < alte_zeit:
+                        bestenliste[idx] = ((vorname, nachname), zeit)
+                        print(f"Zeit für {vorname} {nachname} aktualisiert auf {zeit:.2f} Sekunden.")
+                    else:
+                        print(f"Die vorhandene Zeit {alte_zeit:.2f} Sekunden ist besser. Keine Änderung.")
+                        verlaufs_undo_stack.pop()  # Da es keine Änderung gab, Undo-Eintrag entfernen
+                    break
+            if not gefunden:
+                bestenliste.append(((vorname, nachname), zeit))
+                print(f"{vorname} {nachname} mit Zeit {zeit:.2f} Sekunden hinzugefügt.")
+            
+            bestenliste.sort(key=lambda x: x[1])
 
-st.subheader("🥇 Aktuelle Bestenliste (Top 10)")
-df = laden_bestenliste()
-bestenliste_anzeigen(df)
-
-st.subheader("🔍 Platz suchen")
-such_vorname = st.text_input("Vorname zum Suchen", key="such_vorname")
-such_nachname = st.text_input("Nachname zum Suchen", key="such_nachname")
-such_button = st.button("Suchen")
-
-if such_button:
-    if not such_vorname or not such_nachname:
-        st.warning("Bitte Vor- und Nachnamen zum Suchen eingeben.")
-    else:
-        platz, zeit = name_suchen(df, such_vorname, such_nachname)
-        if platz is None:
-            st.info(f"{such_vorname} {such_nachname} ist nicht in der Bestenliste.")
-        else:
-            st.success(f"{such_vorname} {such_nachname} ist auf Platz {platz} mit Zeit {zeit}.")
+if __name__ == "__main__":
+    main()
