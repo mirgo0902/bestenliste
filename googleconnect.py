@@ -11,4 +11,4 @@ sheet = client.open("bestenliste").sheet1
 data = sheet.get_all_records()
 
 # Daten schreiben
-sheet.append_row(["Name", "Zeit"])
+sheet.append_row(["Vorname", "Nachname", "Zeit"])
