@@ -1,69 +1,50 @@
 import streamlit as st
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd
 
-# Session State nutzen, um Daten zu speichern
-if "bestenliste" not in st.session_state:
-    st.session_state.bestenliste = []
-if "undo_stack" not in st.session_state:
-    st.session_state.undo_stack = []
+# Google Sheets Setup
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("bestenliste-462113-0ac9883ad436.json", scope)
+client = gspread.authorize(creds)
+sheet = client.open("bestenliste").sheet1
 
-st.title("🏃‍♂️ Bestenliste fürs Schulfest")
+# Load data into DataFrame
+data = sheet.get_all_records()
+df = pd.DataFrame(data)
 
-# Eingabe von Namen
-vorname = st.text_input("Vorname")
-nachname = st.text_input("Nachname")
+st.title("🏅 Bestenliste")
 
-# Eingabe der Zeit
-zeit = st.number_input("Zeit in Sekunden", min_value=0.0, format="%.2f", step=0.01)
+# Neue Einträge hinzufügen
+with st.form("add_entry"):
+    name = st.text_input("Name")
+    zeit = st.text_input("Zeit (z. B. 01:32)")
+    submit = st.form_submit_button("Eintragen")
 
-# Zeit hinzufügen oder aktualisieren
-if st.button("➕ Zeit hinzufügen / aktualisieren"):
-    if vorname and nachname and zeit > 0:
-        import copy
-        st.session_state.undo_stack.append(copy.deepcopy(st.session_state.bestenliste))
+    if submit and name and zeit:
+        sheet.append_row([name, zeit])
+        st.success(f"{name} mit Zeit {zeit} eingetragen! Bitte Seite neu laden.")
+        st.stop()
 
-        gefunden = False
-        for idx, (name, alte_zeit) in enumerate(st.session_state.bestenliste):
-            if name == (vorname, nachname):
-                gefunden = True
-                if zeit < alte_zeit:
-                    st.session_state.bestenliste[idx] = ((vorname, nachname), zeit)
-                    st.success(f"Aktualisiert: {vorname} {nachname} mit {zeit:.2f} Sekunden")
-                else:
-                    st.warning(f"Vorherige Zeit ({alte_zeit:.2f}s) ist besser. Keine Änderung.")
-                    st.session_state.undo_stack.pop()
-                break
-        if not gefunden:
-            st.session_state.bestenliste.append(((vorname, nachname), zeit))
-            st.success(f"Hinzugefügt: {vorname} {nachname} mit {zeit:.2f} Sekunden")
+# Sortierte Bestenliste anzeigen
+st.subheader("🥇 Aktuelle Bestenliste")
+if not df.empty:
+    df_sorted = df.sort_values(by="Zeit")  # ggf. Zeit zuerst in Sekunden umwandeln
+    df_sorted.reset_index(drop=True, inplace=True)
+    df_sorted.index += 1  # Platzierung 1-basiert
+    st.dataframe(df_sorted)
+else:
+    st.info("Noch keine Einträge vorhanden.")
 
-        st.session_state.bestenliste.sort(key=lambda x: x[1])
-
-# Sucheingabe
-such_name = st.text_input("🔍 Suche nach Name (Vorname Nachname)")
-if such_name:
-    teile = such_name.strip().split(maxsplit=1)
-    if len(teile) == 2:
-        vor, nach = teile
-        for i, ((v, n), z) in enumerate(st.session_state.bestenliste, 1):
-            if (v, n) == (vor, nach):
-                st.info(f"{v} {n} ist auf Platz {i} mit {z:.2f} Sekunden.")
-                break
-        else:
-            st.warning(f"{vor} {nach} nicht gefunden.")
-
-# Bestenliste anzeigen
-if st.button("🏆 Top 10 anzeigen"):
-    if st.session_state.bestenliste:
-        st.subheader("Top 10")
-        for i, ((v, n), z) in enumerate(st.session_state.bestenliste[:10], 1):
-            st.write(f"{i}. {v} {n} – {z:.2f} Sekunden")
+# Platzierung suchen
+st.subheader("🔍 Platz suchen")
+search_name = st.text_input("Nach Namen suchen")
+if search_name:
+    result = df[df["Name"].str.lower() == search_name.lower()]
+    if not result.empty:
+        rank = df.sort_values("Zeit").reset_index(drop=True)
+        rank["Platz"] = rank.index + 1
+        platz = rank[rank["Name"].str.lower() == search_name.lower()]["Platz"].values[0]
+        st.success(f"{search_name} ist auf Platz {platz}!")
     else:
-        st.info("Die Bestenliste ist leer.")
-
-# Undo-Funktion
-if st.button("↩️ Letzte Änderung rückgängig machen"):
-    if st.session_state.undo_stack:
-        st.session_state.bestenliste = st.session_state.undo_stack.pop()
-        st.success("Letzte Änderung wurde rückgängig gemacht.")
-    else:
-        st.warning("Nichts zum Rückgängig machen.")
+        st.warning(f"{search_name} nicht gefunden.")
