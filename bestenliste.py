@@ -1,140 +1,95 @@
-import streamlit as st
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import pandas as pd
-import copy
-
-# --- Google Sheets Setup ---
-SCOPE = ['https://spreadsheets.google.com/feeds',
-         'https://www.googleapis.com/auth/drive']
-
-# Pfad zu deinem Google Service Account JSON Schlüssel
-CREDENTIALS_PATH = "C:/Users/User/Documents/bestenliste/.streamlit/bestenliste-462113-0ac9883ad436.json"
-
-# ID oder URL deines Google Sheets
-SPREADSHEET_ID = "1xsWpzujwS-v1PirBnOxg4LOVs1gbsoSEP4FtVWhPSnc"
-
-def get_sheet():
-    creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_PATH, SCOPE)
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(SPREADSHEET_ID).sheet1
-    return sheet
-
-def load_bestenliste_from_sheet(sheet):
-    records = sheet.get_all_records()
-    # Erwartet Spalten: Vorname, Nachname, Zeit (Sekunden)
-    bestenliste = []
-    for r in records:
+def eingabe_zeit():
+    while True:
         try:
-            zeit = float(r['Zeit'])
-            vorname = r['Vorname'].strip()
-            nachname = r['Nachname'].strip()
-            bestenliste.append(((vorname, nachname), zeit))
-        except (KeyError, ValueError):
-            pass
-    bestenliste.sort(key=lambda x: x[1])
-    return bestenliste
+            zeit = float(input("Zeit in Sekunden eingeben: "))
+            if zeit <= 0:
+                print("Bitte eine positive Zahl eingeben.")
+                continue
+            return zeit
+        except ValueError:
+            print("Ungültige Eingabe. Bitte eine Zahl eingeben.")
 
-def save_bestenliste_to_sheet(sheet, bestenliste):
-    # Überschreibt die gesamte Tabelle (außer Kopfzeile)
-    data = [["Vorname", "Nachname", "Zeit"]]
-    for (vorname, nachname), zeit in bestenliste:
-        data.append([vorname, nachname, zeit])
-    sheet.clear()
-    sheet.update(data)
-
-# --- Bestenliste Logik ---
-
-def find_position(bestenliste, vorname, nachname):
-    for idx, ((vn, nn), zeit) in enumerate(bestenliste):
-        if vn == vorname and nn == nachname:
-            return idx+1, zeit
+def name_suchen(bestenliste, vorname, nachname):
+    for idx, (name, zeit) in enumerate(bestenliste):
+        if name == (vorname, nachname):
+            return idx + 1, zeit  # Platz ist Index +1
     return None, None
 
+def bestenliste_anzeigen(bestenliste, top=10):
+    print(f"\nTop {top} Ergebnisse:")
+    for i, ((vorname, nachname), zeit) in enumerate(bestenliste[:top], start=1):
+        print(f"{i}. {vorname} {nachname} - {zeit:.2f} Sekunden")
+
 def main():
-    st.title("Bestenliste Schulfest")
-
-    sheet = get_sheet()
-    if 'bestenliste' not in st.session_state:
-        st.session_state.bestenliste = load_bestenliste_from_sheet(sheet)
-        st.session_state.undo_stack = []
-
-    neuen_eintrag = st.text_input("Vor- und Nachname eingeben (z.B. Max Mustermann):")
-    if neuen_eintrag:
-        namen = neuen_eintrag.strip().split()
-        if len(namen) >= 2:
-            vorname = namen[0]
-            nachname = " ".join(namen[1:])
-            zeit_input = st.text_input("Zeit in Sekunden eingeben:")
-            if zeit_input:
-                try:
-                    zeit = float(zeit_input)
-                    if zeit <= 0:
-                        st.error("Bitte eine positive Zahl eingeben.")
-                    else:
-                        # Undo speichern
-                        st.session_state.undo_stack.append(copy.deepcopy(st.session_state.bestenliste))
-
-                        # Existierendes Update prüfen
-                        found = False
-                        for i, (name, alte_zeit) in enumerate(st.session_state.bestenliste):
-                            if name == (vorname, nachname):
-                                found = True
-                                if zeit < alte_zeit:
-                                    st.session_state.bestenliste[i] = ((vorname, nachname), zeit)
-                                    st.success(f"Zeit für {vorname} {nachname} aktualisiert auf {zeit:.2f} Sekunden.")
-                                else:
-                                    st.warning(f"Die vorhandene Zeit {alte_zeit:.2f} Sekunden ist besser. Keine Änderung.")
-                                    st.session_state.undo_stack.pop()  # Undo entfernen, da keine Änderung
-                                break
-                        if not found:
-                            st.session_state.bestenliste.append(((vorname, nachname), zeit))
-                            st.success(f"{vorname} {nachname} mit Zeit {zeit:.2f} Sekunden hinzugefügt.")
-
-                        st.session_state.bestenliste.sort(key=lambda x: x[1])
-                        save_bestenliste_to_sheet(sheet, st.session_state.bestenliste)
-                        
-                        # Formular zurücksetzen
-                        st.experimental_rerun()
-                except ValueError:
-                    st.error("Ungültige Eingabe für Zeit.")
-        else:
-            st.warning("Bitte Vor- und Nachnamen eingeben.")
-
-    st.write("### Top 10 Bestenliste")
-    top10 = st.session_state.bestenliste[:10]
-    if top10:
-        df = pd.DataFrame(
-            [{"Platz": i+1, "Vorname": vn, "Nachname": nn, "Zeit": zeit} for i, ((vn, nn), zeit) in enumerate(top10)]
-        )
-        st.table(df)
-    else:
-        st.write("Noch keine Einträge vorhanden.")
-
-    st.write("---")
-    st.write("### Nach Namen suchen")
-    such_name = st.text_input("Vor- und Nachnamen zum Suchen eingeben:")
-    if such_name:
-        namen = such_name.strip().split()
-        if len(namen) >= 2:
-            vorname = namen[0]
-            nachname = " ".join(namen[1:])
-            pos, zeit = find_position(st.session_state.bestenliste, vorname, nachname)
-            if pos:
-                st.success(f"{vorname} {nachname} ist auf Platz {pos} mit {zeit:.2f} Sekunden.")
+    bestenliste = []  # Liste von ((vorname, nachname), zeit)
+    verlaufs_undo_stack = []  # Stapel für Undo (Liste mit ganzen Listen-Ständen)
+    
+    print("Willkommen zur Bestenliste fürs Schulfest!")
+    print("Gib Vor- und Nachname ein, um Zeiten hinzuzufügen bzw. zu aktualisieren.")
+    print('Gib "Such Name" zum Suchen ein (z.B. "Such Max Mustermann").')
+    print('Gib "Top 10" ein, um die 10 besten Zeiten anzuzeigen.')
+    print('Gib "Undo" ein, um die letzte Änderung rückgängig zu machen.')
+    print('Gib "Ende" ein, um das Programm zu beenden.')
+    
+    while True:
+        eingabe = input("\nEingabe: ").strip()
+        if eingabe.lower() == "ende":
+            print("Programm wird beendet.")
+            break
+        elif eingabe.lower() == "top 10":
+            if not bestenliste:
+                print("Die Bestenliste ist noch leer.")
             else:
-                st.warning(f"{vorname} {nachname} ist nicht in der Bestenliste.")
+                bestenliste.sort(key=lambda x: x[1])
+                bestenliste_anzeigen(bestenliste, top=10)
+            continue
+        elif eingabe.lower() == "undo":
+            if verlaufs_undo_stack:
+                bestenliste = verlaufs_undo_stack.pop()
+                print("Letzte Änderung wurde rückgängig gemacht.")
+            else:
+                print("Nichts zum Rückgängig machen.")
+            continue
+        elif eingabe.lower().startswith("such "):
+            parts = eingabe.split(maxsplit=2)
+            if len(parts) < 3:
+                print("Bitte den Befehl richtig eingeben: z.B. 'Such Max Mustermann'")
+                continue
+            vorname, nachname = parts[1], parts[2]
+            platz, zeit = name_suchen(bestenliste, vorname, nachname)
+            if platz is not None:
+                print(f"{vorname} {nachname} ist auf Platz {platz} mit {zeit:.2f} Sekunden.")
+            else:
+                print(f"{vorname} {nachname} ist nicht in der Bestenliste.")
+            continue
         else:
-            st.warning("Bitte Vor- und Nachnamen zum Suchen eingeben.")
-
-    if st.button("Undo letzte Änderung"):
-        if st.session_state.undo_stack:
-            st.session_state.bestenliste = st.session_state.undo_stack.pop()
-            save_bestenliste_to_sheet(sheet, st.session_state.bestenliste)
-            st.success("Letzte Änderung rückgängig gemacht.")
-            st.experimental_rerun()
-        else:
-            st.warning("Keine Änderung zum Rückgängig machen.")
+            namen = eingabe.split()
+            if len(namen) < 2:
+                print("Bitte Vor- und Nachnamen eingeben.")
+                continue
+            vorname, nachname = namen[0], " ".join(namen[1:])
+            zeit = eingabe_zeit()
+            
+            # Zustand vor der Änderung sichern für Undo (tiefe Kopie)
+            import copy
+            verlaufs_undo_stack.append(copy.deepcopy(bestenliste))
+            
+            gefunden = False
+            for idx, (name, alte_zeit) in enumerate(bestenliste):
+                if name == (vorname, nachname):
+                    gefunden = True
+                    if zeit < alte_zeit:
+                        bestenliste[idx] = ((vorname, nachname), zeit)
+                        print(f"Zeit für {vorname} {nachname} aktualisiert auf {zeit:.2f} Sekunden.")
+                    else:
+                        print(f"Die vorhandene Zeit {alte_zeit:.2f} Sekunden ist besser. Keine Änderung.")
+                        verlaufs_undo_stack.pop()  # Da es keine Änderung gab, Undo-Eintrag entfernen
+                    break
+            if not gefunden:
+                bestenliste.append(((vorname, nachname), zeit))
+                print(f"{vorname} {nachname} mit Zeit {zeit:.2f} Sekunden hinzugefügt.")
+            
+            bestenliste.sort(key=lambda x: x[1])
 
 if __name__ == "__main__":
     main()
